@@ -124,8 +124,6 @@ class ContractRecurrencyMixin(models.AbstractModel):
         "recurring_invoicing_offset",
         "recurring_rule_type",
         "recurring_interval",
-        "date_end",
-        "recurring_next_date",
     )
     def _compute_next_period_date_end(self):
         for rec in self:
