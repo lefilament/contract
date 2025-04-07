@@ -464,6 +464,14 @@
                                     the
                                     invoiced period
                                 </p>
+                                <p
+                                    colspan="2"
+                                    class="alert alert-danger"
+                                    attrs="{'invisible': [('line_recurrence', '=', False)]}"
+                                >
+                                    <strong
+                                    >WARNING:</strong> Markers should not be used in sections / notes with recurrence at line level
+                                </p>
                             </group>
                         </page>
                     </notebook>
