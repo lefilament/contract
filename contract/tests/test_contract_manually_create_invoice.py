@@ -35,11 +35,14 @@ class TestContractManuallyCreateInvoice(TestContractBase):
             ),
         )
         action = wizard.create_invoice()
+        product_lines = contracts.contract_line_ids.filtered(
+            lambda l: l.display_type == "product"
+        )
         invoice_lines = self.env["account.move.line"].search(
-            [("contract_line_id", "in", contracts.mapped("contract_line_ids").ids)]
+            [("contract_line_id", "in", product_lines.ids)]
         )
         self.assertEqual(
-            len(contracts.mapped("contract_line_ids")),
+            len(product_lines),
             len(invoice_lines),
         )
         invoices = self.env["account.move"].search(action["domain"])

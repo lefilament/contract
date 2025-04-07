@@ -89,22 +89,26 @@ class ContractMulticompanyCase(TestContractBase):
             ).create(vals)
         self.env["contract.contract"].cron_recurring_create_invoice()
         # Check company 1
+        product_lines_company_1 = contracts.contract_line_ids.filtered(
+            lambda l: l.display_type == "product"
+        )
         invoice_lines_company_1 = self.env["account.move.line"].search(
-            [("contract_line_id", "in", contracts.mapped("contract_line_ids").ids)]
+            [("contract_line_id", "in", product_lines_company_1.ids)]
+        )
+        product_lines_company_2 = contracts_company_2.contract_line_ids.filtered(
+            lambda l: l.display_type == "product"
         )
         invoice_lines_company_2 = self.env["account.move.line"].search(
             [
                 (
                     "contract_line_id",
                     "in",
-                    contracts_company_2.mapped("contract_line_ids").ids,
+                    product_lines_company_2.ids,
                 )
             ]
         )
+        self.assertEqual(len(product_lines_company_1), len(invoice_lines_company_1))
         self.assertEqual(
-            len(contracts.mapped("contract_line_ids")), len(invoice_lines_company_1)
-        )
-        self.assertEqual(
-            len(contracts_company_2.mapped("contract_line_ids")),
+            len(product_lines_company_2),
             len(invoice_lines_company_2),
         )

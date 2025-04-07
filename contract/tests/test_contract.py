@@ -119,7 +119,19 @@ class TestContractBase(common.TransactionCase):
             "recurring_next_date": "2018-01-15",
             "is_auto_renew": False,
         }
+        section_line_vals = {
+            "contract_id": cls.contract.id,
+            "name": "Section - Services from #START# to #END#",
+            "display_type": "line_section",
+        }
+        note_line_vals = {
+            "contract_id": cls.contract.id,
+            "name": "Note - Services from #START# to #END#",
+            "display_type": "line_note",
+        }
+        cls.section_line = cls.env["contract.line"].create(section_line_vals)
         cls.acct_line = cls.env["contract.line"].create(cls.line_vals)
+        cls.note_line = cls.env["contract.line"].create(note_line_vals)
         cls.contract.company_id.create_new_line_at_contract_line_renew = True
         cls.terminate_reason = cls.env["contract.terminate.reason"].create(
             {"name": "terminate_reason"}
@@ -163,6 +175,15 @@ class TestContractBase(common.TransactionCase):
                             "name": "Line",
                             "quantity": 1,
                             "price_unit": 120,
+                        },
+                    ),
+                    (
+                        0,
+                        0,
+                        {
+                            "product_id": False,
+                            "name": "Note for #INVOICEMONTHNAME# Services",
+                            "display_type": "line_note",
                         },
                     ),
                 ],
@@ -260,10 +281,26 @@ class TestContract(TestContractBase):
         self.invoice_monthly = self.contract._get_related_invoices()
         self.assertTrue(self.invoice_monthly)
         self.assertEqual(self.acct_line.recurring_next_date, to_date("2018-02-15"))
-        self.inv_line = self.invoice_monthly.invoice_line_ids[0]
+        self.assertEqual(self.contract.recurring_next_date, to_date("2018-02-15"))
+        self.inv_line = self.invoice_monthly.invoice_line_ids.filtered(
+            lambda l: l.display_type == "product"
+        )[0]
         self.assertTrue(self.inv_line.tax_ids)
         self.assertAlmostEqual(self.inv_line.price_subtotal, 50.0)
         self.assertEqual(self.contract.user_id, self.invoice_monthly.user_id)
+        self.assertEqual(self.inv_line.name, "Services from 01/01/2018 to 02/14/2018")
+        self.contract.recurring_create_invoice()
+        self.invoice_monthly2 = self.contract._get_related_invoices()[0]
+        self.assertTrue(self.invoice_monthly2)
+        self.assertEqual(self.acct_line.recurring_next_date, to_date("2018-03-15"))
+        self.assertEqual(self.contract.recurring_next_date, to_date("2018-03-15"))
+        self.inv_line2 = self.invoice_monthly2.invoice_line_ids.filtered(
+            lambda l: l.display_type == "product"
+        )[0]
+        self.assertTrue(self.inv_line2.tax_ids)
+        self.assertAlmostEqual(self.inv_line2.price_subtotal, 50.0)
+        self.assertEqual(self.contract.user_id, self.invoice_monthly2.user_id)
+        self.assertEqual(self.inv_line2.name, "Services from 02/15/2018 to 03/14/2018")
 
     def test_contract_level_recurrence(self):
         self.contract3.recurring_create_invoice()
@@ -543,6 +580,10 @@ class TestContract(TestContractBase):
         """It should create invoice lines for the contract lines."""
         self.acct_line.cancel()
         self.acct_line.unlink()
+        self.section_line.cancel()
+        self.section_line.unlink()
+        self.note_line.cancel()
+        self.note_line.unlink()
         self.contract.contract_template_id = self.template
 
         self.assertFalse(
@@ -1103,7 +1144,15 @@ class TestContract(TestContractBase):
         self.contract.recurring_create_invoice()
         self.assertEqual(
             self.contract.recurring_next_date,
-            min(self.contract.contract_line_ids.mapped("recurring_next_date")),
+            min(
+                self.contract.contract_line_ids.filtered(
+                    lambda l: (
+                        l.recurring_next_date
+                        and not l.is_canceled
+                        and (not l.display_type or l.is_recurring_note)
+                    )
+                ).mapped("recurring_next_date")
+            ),
         )
 
     def test_date_end(self):
@@ -1737,11 +1786,16 @@ class TestContract(TestContractBase):
         for _i in range(10):
             contracts |= self.contract.copy()
         self.env["contract.contract"].cron_recurring_create_invoice()
+        product_lines = contracts.contract_line_ids.filtered(
+            lambda l: l.display_type == "product"
+        )
         invoice_lines = self.env["account.move.line"].search(
-            [("contract_line_id", "in", contracts.mapped("contract_line_ids").ids)]
+            [
+                ("contract_line_id", "in", product_lines.ids),
+            ]
         )
         self.assertEqual(
-            len(contracts.mapped("contract_line_ids")),
+            len(product_lines),
             len(invoice_lines),
         )
 
@@ -2396,3 +2450,25 @@ class TestContract(TestContractBase):
         action = self.contract.action_preview()
         self.assertIn("/my/contracts/", action["url"])
         self.assertIn("access_token=", action["url"])
+
+    @freeze_time("2023-05-01")
+    def test_check_month_name_marker(self):
+        """Set fixed date to check test correctly."""
+        self.contract3.contract_line_ids.date_start = fields.Date.today()
+        self.contract3.contract_line_ids.recurring_next_date = fields.Date.today()
+        invoice_id = self.contract3.recurring_create_invoice()
+        self.assertEqual(invoice_id.invoice_line_ids[0].name, "Header for May Services")
+        self.assertEqual(
+            invoice_id.invoice_line_ids[1].name,
+            "Services from 05/01/2023 to 05/31/2023",
+        )
+        self.assertEqual(invoice_id.invoice_line_ids[3].name, "Note for May Services")
+        invoice_id = self.contract3.recurring_create_invoice()
+        self.assertEqual(
+            invoice_id.invoice_line_ids[0].name, "Header for June Services"
+        )
+        self.assertEqual(
+            invoice_id.invoice_line_ids[1].name,
+            "Services from 06/01/2023 to 06/30/2023",
+        )
+        self.assertEqual(invoice_id.invoice_line_ids[3].name, "Note for June Services")
